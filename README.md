@@ -2,14 +2,14 @@
 
 **OpenClaw Lite — a personal AI assistant on Telegram, powered by official AI CLIs.**
 
-No API keys. No spoofing. No marketplace. Official CLI auth only.
-Telegram message in, CLI subprocess, structured reply out.
+No spoofing. No marketplace. Compliant auth for all three CLIs.
+Telegram message in, smart CLI routing, structured reply out.
 
 ---
 
 ## What this is
 
-A lightweight, always-on Telegram assistant that routes your messages through official AI CLI tools (Claude Code, Gemini CLI, ChatGPT Codex CLI) using their native authentication — your existing subscriptions, no API keys. It borrows the good parts of OpenClaw's architecture — gateway, job orchestration, modular skills — without the sprawl, the public skill marketplace, or the unrestricted shell access.
+A lightweight, always-on Telegram assistant that routes your messages through official AI CLI tools (Claude Code, Gemini CLI, ChatGPT Codex CLI) using each provider's officially sanctioned automation auth — no spoofing, no gray areas. It borrows the good parts of OpenClaw's architecture — gateway, job orchestration, modular skills — without the sprawl, the public skill marketplace, or the unrestricted shell access. Smart routing picks the best CLI for each task type.
 
 Think of it as 5 parts:
 
@@ -23,11 +23,11 @@ Think of it as 5 parts:
 
 ## Core principles
 
-- **Official CLI auth only.** All inference goes through official CLI tools (`claude`, `gemini`, `codex`) using their native OAuth login. No API keys stored or managed. No token extraction. No client spoofing. See [Policy](docs/policy.md).
+- **Compliant auth for every CLI.** Gemini: service accounts (Google recommends for CI). Codex: API key + `codex exec` (first-class automation). Claude: API key (explicitly carved out from automation ban). Zero gray areas. See [Policy](docs/policy.md).
+- **Smart routing.** The orchestrator picks the best CLI for each task — Claude for quality-critical coding, Codex for speed and security, Gemini for research and free-tier volume. See [CLI Comparison](docs/cli-comparison.md).
 - **No spoofing.** Every reply is genuinely from a CLI run or clearly labeled as a system message. No cached replies pretending to be live inference. No hidden prompts. No bypassed permission systems. Full audit trail.
 - **No auto-install.** Skills are proposed by the agent, reviewed by you, activated only with your explicit approval.
 - **No unrestricted shell.** Default tools are read-only. Write/execute requires approval. Risky operations run sandboxed.
-- **Multi-CLI ready.** Claude Code first, Gemini CLI and Codex CLI on the roadmap. Same auth model, same orchestrator, swappable runners.
 - **Telegram + Dashboard.** Telegram is the primary interface. A full dashboard (Kanban, analytics, approvals) comes later.
 
 ## How it works
@@ -98,6 +98,7 @@ actionos-cli/
 | [Telegram UX](docs/telegram-ux.md) | Commands, buttons, message formats, two-pass approval UX |
 | [Schema](docs/schema.md) | SQLite tables, relationships, migration strategy |
 | [Security](docs/security.md) | Hard rules, threat model, what we refuse to do |
+| [CLI Comparison](docs/cli-comparison.md) | Claude vs Gemini vs Codex: benchmarks, strengths, routing table |
 | [Workspace](docs/workspace.md) | Prompt templates (SOUL, USER, MEMORY, BOOT), OpenClaw patterns |
 | [Config](docs/config.md) | TOML config schema, defaults, environment overrides |
 | [Build Phases](docs/build-phases.md) | Implementation order, milestones, definition of done |
