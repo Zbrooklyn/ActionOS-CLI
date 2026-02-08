@@ -1,0 +1,26 @@
+# Config with secrets
+config/default.toml
+
+# Database and user data
+data/
+
+# Custom skills (user-approved, not shared)
+skills/custom/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
