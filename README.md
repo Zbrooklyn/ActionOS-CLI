@@ -85,6 +85,7 @@ actionos-cli/
 | [Security](docs/security.md) | Hard rules, threat model, what we refuse to do |
 | [Config](docs/config.md) | TOML config schema, defaults, environment overrides |
 | [Build Phases](docs/build-phases.md) | Implementation order, milestones, definition of done |
+| [References](docs/references.md) | OpenClaw, LiteClaw, and Telegram+Claude bot analysis |
 
 ## Build order (summary)
 
