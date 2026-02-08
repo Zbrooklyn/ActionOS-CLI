@@ -84,13 +84,14 @@ The `workspace/` directory contains files read by the orchestrator and injected 
 | File | Purpose | Injected? |
 |------|---------|-----------|
 | `SOUL.md` | Agent personality, values, behavioral rules | Yes — always |
-| `USER.md` | Evolving profile of the human (name, timezone, preferences) | Yes — always |
-| `MEMORY.md` | Curated long-term memory (decisions, learnings, facts) | Yes — always |
-| `BOOT.md` | Startup checklist (available tools, constraints, skill format) | Yes — every session |
+| `USER.md` | Evolving profile of the human (name, timezone, preferences, output formatting) | Yes — always |
+| `MEMORY.md` | Curated long-term memory (decisions, learnings, facts, patterns) | Yes — always |
+| `TOOLS.md` | Environment-specific infrastructure notes (machines, paths, services) | Yes — always |
+| `BOOT.md` | Operations manual: tools, memory management, safety, output rules | Yes — every session |
 | `BOOTSTRAP.md` | First-run onboarding (used once, then deleted) | Yes — replaces BOOT.md on first run |
 | `memory/*.md` | Raw daily conversation logs | No — too large, for review only |
 
-The orchestrator builds the system prompt by concatenating: SOUL.md + USER.md + MEMORY.md + BOOT.md + skill descriptions + orchestrator instructions. This is passed as `--append-system-prompt`, preserving Claude's built-in capabilities.
+The orchestrator builds the system prompt by concatenating: SOUL.md + USER.md + MEMORY.md + TOOLS.md + BOOT.md + mode instructions + skill descriptions + orchestrator instructions. This is passed as `--append-system-prompt`, preserving Claude's built-in capabilities.
 
 Inspired by [OpenClaw's template system](references.md#openclaw-core-templates). See [Workspace](workspace.md) for full details.
 

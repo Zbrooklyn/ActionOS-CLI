@@ -21,3 +21,15 @@ Curated long-term memory. Distilled from daily conversation logs.
 ## Facts
 
 <!-- Stable facts: account names, server addresses, project structures, etc. -->
+
+## Patterns
+
+<!-- What works and what doesn't. Workflow optimizations, things to avoid,
+     recurring issues and their solutions. Inspired by LiteClaw's
+     LEARNING.md / SUBCONSCIOUS.md — meta-knowledge about how to work better.
+
+     Examples:
+     - "User prefers git commits with conventional commit format"
+     - "FastAPI project at ~/webapp uses alembic for migrations, not raw SQL"
+     - "When searching logs, always check /var/log/syslog first"
+     - "Don't suggest Docker for simple scripts — user prefers venv" -->

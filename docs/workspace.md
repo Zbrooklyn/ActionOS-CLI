@@ -9,9 +9,10 @@ The `workspace/` directory contains markdown files that are read by the orchestr
 ```
 workspace/
   SOUL.md          # Agent personality, values, behavioral rules
-  USER.md          # Evolving profile of the human
-  MEMORY.md        # Curated long-term memory
-  BOOT.md          # Startup checklist (read every session)
+  USER.md          # Evolving profile of the human (+ output formatting prefs)
+  MEMORY.md        # Curated long-term memory (decisions, learnings, facts, patterns)
+  TOOLS.md         # Environment-specific infrastructure notes (machines, paths, services)
+  BOOT.md          # Operations manual: tools, memory, safety, output rules
   BOOTSTRAP.md     # First-run onboarding (used once, then deleted)
   memory/          # Raw daily conversation logs
     YYYY-MM-DD.md  # Auto-generated daily log
@@ -49,14 +50,30 @@ workspace/
 
 **OpenClaw parallel:** MEMORY.md (curated layer of two-tiered memory).
 
+### TOOLS.md
+
+**What the human's environment looks like.** Machines, project paths, services, infrastructure notes. Things the agent should know about the user's setup that aren't secrets.
+
+- Read on every invocation.
+- Distinct from skills (which define *how* to do things) — TOOLS.md describes *what exists*.
+- Distinct from config.toml (which the agent cannot read) — TOOLS.md is agent-accessible context.
+- Template ships with empty sections. Populated during onboarding or manually.
+
+**OpenClaw parallel:** TOOLS.md (reversed our earlier decision to merge into config.toml — the agent needs to see this in the prompt, not in a config file it can't access).
+
+**LiteClaw parallel:** No direct equivalent. LiteClaw stores environment info in SOUL.md, which mixes concerns.
+
 ### BOOT.md
 
-**What to do on startup.** A checklist the agent sees at the beginning of every session. Reminds it of available tools, constraints, how skills work, and to check MEMORY.md/USER.md for context.
+**Operations manual.** Covers: startup checklist, skill invocation, memory management rules, safety boundaries, and Telegram output formatting. This is the most content-heavy workspace file.
 
 - Read on every invocation (unless BOOTSTRAP.md exists — see below).
-- Keep this short. It runs every time.
+- Expanded from a simple checklist to a full operations manual, absorbing the role of OpenClaw's AGENTS.md.
+- Contains: when/how to suggest memory updates, explicit safety rules ("read before write", "use trash over rm"), and Telegram-specific output constraints (4096 char limit, limited markdown).
 
-**OpenClaw parallel:** BOOT.md (same concept).
+**OpenClaw parallel:** BOOT.md + AGENTS.md (merged — single agent doesn't need separate files for "who are the agents" and "startup checklist").
+
+**LiteClaw parallel:** AGENT.md (behavioral instructions, autonomy features, self-termination safeguard).
 
 ### BOOTSTRAP.md
 
@@ -89,9 +106,11 @@ The orchestrator builds the `--append-system-prompt` value by reading workspace 
 1. SOUL.md content       (if exists)
 2. USER.md content       (if exists)
 3. MEMORY.md content     (if exists)
-4. BOOT.md content       (or BOOTSTRAP.md if first run)
-5. Skill descriptions    (from loaded skill manifests)
-6. Orchestrator instructions (skill_call format, constraints)
+4. TOOLS.md content      (if exists)
+5. BOOT.md content       (or BOOTSTRAP.md if first run)
+6. Mode-specific instructions (default/research/build)
+7. Skill descriptions    (from loaded skill manifests)
+8. Orchestrator instructions (skill_call format, constraints)
 ```
 
 This is concatenated into a single string and passed as `--append-system-prompt`. Claude's built-in system prompt is preserved (we never use `--system-prompt`).
@@ -103,25 +122,36 @@ This is concatenated into a single string and passed as `--append-system-prompt`
 | SOUL.md | < 500 words | Personality doesn't need to be a novel |
 | USER.md | < 300 words | Key facts only, not a biography |
 | MEMORY.md | < 500 words | Curate aggressively, promote only what matters |
-| BOOT.md | < 200 words | Short checklist |
+| TOOLS.md | < 200 words | Infrastructure notes, not a full inventory |
+| BOOT.md | < 500 words | Operations manual — the longest workspace file |
 | Skill descriptions | ~50 words each | Name + one-line description per skill |
 
-Total system prompt overhead target: **< 2000 tokens** from workspace files.
+Total system prompt overhead target: **< 2500 tokens** from workspace files.
 
-## Files we chose NOT to create
+## OpenClaw / LiteClaw mapping
 
-From OpenClaw's 8 templates, we adopted 5 and skipped 3:
+How our 6 workspace files relate to the template systems in OpenClaw (8 files) and LiteClaw (6 files):
 
-| OpenClaw file | Our decision | Reason |
-|---------------|--------------|--------|
-| SOUL.md | Adopted | Core personality file |
-| AGENTS.md | Merged into BOOT.md | We have one agent, not a fleet. Operational instructions fit in BOOT.md. |
-| IDENTITY.md | Merged into SOUL.md | Single-agent system doesn't need a separate identity card. |
-| USER.md | Adopted | Essential for personalization |
-| TOOLS.md | Merged into config.toml | Environment config (SSH hosts, paths) belongs in config, not in a prompt file. |
-| BOOTSTRAP.md | Adopted | Elegant onboarding pattern |
-| BOOT.md | Adopted | Startup checklist |
-| HEARTBEAT.md | Replaced by cron_jobs table | We use SQLite cron scheduling, not a markdown-based heartbeat config. |
+| Our file | OpenClaw source | LiteClaw source | Notes |
+|----------|----------------|-----------------|-------|
+| SOUL.md | SOUL.md + IDENTITY.md | PERSONALITY.md | Merged identity card into personality (single agent) |
+| USER.md | USER.md | SOUL.md (user facts) | LiteClaw confusingly stores user facts in SOUL.md |
+| MEMORY.md | MEMORY.md | LEARNING.md + SUBCONSCIOUS.md | Combined learnings, patterns, and facts into one file |
+| TOOLS.md | TOOLS.md | (none) | Environment-specific infrastructure notes |
+| BOOT.md | BOOT.md + AGENTS.md | AGENT.md | Merged startup checklist + operations manual |
+| BOOTSTRAP.md | BOOTSTRAP.md | (none) | First-run onboarding, then self-deletes |
+
+### Files we chose NOT to create
+
+| Source file | Decision | Reason |
+|-------------|----------|--------|
+| OpenClaw IDENTITY.md | Merged into SOUL.md | Single-agent system doesn't need a separate identity card |
+| OpenClaw AGENTS.md | Merged into BOOT.md | One agent, not a fleet. Operations manual fits in BOOT.md |
+| OpenClaw HEARTBEAT.md | Replaced by `cron_jobs` table | SQLite cron scheduling is more robust than markdown-based config |
+| OpenClaw `.dev.md` variants | Skipped | Dev-mode personality swapping is unnecessary for a personal bot |
+| LiteClaw PERSONALITY.md | Merged into SOUL.md | Our SOUL.md covers both character and behavioral evolution |
+| LiteClaw SUBCONSCIOUS.md | Merged into MEMORY.md (Patterns section) | Innovation ideas and error patterns fit under curated memory |
+| LiteClaw LEARNING.md | Merged into MEMORY.md (Patterns section) | Best practices and workflow optimizations are part of long-term memory |
 
 ## Editing workspace files
 

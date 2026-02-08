@@ -66,9 +66,10 @@ actionos-cli/
     dashboard/        # (later) Minimal web UI for jobs/approvals
   workspace/
     SOUL.md           # Agent personality, values, behavioral rules
-    USER.md           # Evolving profile of the human
-    MEMORY.md         # Curated long-term memory
-    BOOT.md           # Startup checklist (read every session)
+    USER.md           # Evolving profile of the human (+ output formatting)
+    MEMORY.md         # Curated long-term memory (decisions, learnings, patterns)
+    TOOLS.md          # Environment notes (machines, paths, services)
+    BOOT.md           # Operations manual: tools, memory, safety, output rules
     BOOTSTRAP.md      # First-run onboarding (used once, then deleted)
     memory/           # Raw daily conversation logs
   skills/

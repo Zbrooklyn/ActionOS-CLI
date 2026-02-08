@@ -177,10 +177,11 @@ The `--append-system-prompt` value is built by the orchestrator from multiple so
 1. workspace/SOUL.md       (agent personality — if exists)
 2. workspace/USER.md       (human profile — if exists)
 3. workspace/MEMORY.md     (curated long-term memory — if exists)
-4. workspace/BOOT.md       (startup checklist — or BOOTSTRAP.md if first run)
-5. Mode-specific instructions (see templates below)
-6. Skill descriptions       (from loaded skill manifests)
-7. Orchestrator instructions (skill_call format, constraints)
+4. workspace/TOOLS.md      (environment/infrastructure notes — if exists)
+5. workspace/BOOT.md       (operations manual — or BOOTSTRAP.md if first run)
+6. Mode-specific instructions (see templates below)
+7. Skill descriptions       (from loaded skill manifests)
+8. Orchestrator instructions (skill_call format, constraints)
 ```
 
 All workspace files are optional. If missing, the agent runs with mode-specific instructions only. See [Workspace](workspace.md) for file details.

@@ -109,7 +109,7 @@ After 3 consecutive tool failures, inject a `[SYSTEM HALT]` message forcing the 
 **3. Layered system prompt**
 Static identity (AGENT.md) + dynamic memories (SOUL, PERSONALITY, LEARNING) rebuilt on every message. Memory updates are immediately reflected.
 
-**ActionOS-CLI adoption:** Our `--append-system-prompt` already supports this. Add workspace file reading.
+**ActionOS-CLI adoption:** Done. Workspace files (SOUL, USER, MEMORY, TOOLS, BOOT) are read and concatenated into `--append-system-prompt` on every invocation. See [Workspace](workspace.md).
 
 **4. Four-tier memory system**
 - **SOUL.md** — facts about the user
@@ -118,6 +118,8 @@ Static identity (AGENT.md) + dynamic memories (SOUL, PERSONALITY, LEARNING) rebu
 - **LEARNING.md** — best practices, workflow optimizations
 
 All are plain markdown files the agent can read and update.
+
+**ActionOS-CLI adoption:** Done. Merged into 3 files: USER.md (user facts), SOUL.md (personality), MEMORY.md (learnings + patterns + decisions). The "Patterns" section in MEMORY.md absorbs SUBCONSCIOUS.md and LEARNING.md.
 
 **5. Message deduplication (two layers)**
 - In-memory set (capped at 1000) for webhook dedup
