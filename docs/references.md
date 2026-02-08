@@ -26,12 +26,14 @@ OpenClaw's core innovation is a **file-based prompt workspace**: agent behavior 
 **1. File-based prompt workspace**
 Instead of hardcoding agent behavior, use editable markdown files. They're versionable (git), human-readable, and the agent itself can update them.
 
-**ActionOS-CLI adoption:** Create a `workspace/` directory with:
-- `SOUL.md` — bot personality and rules (we already have this via `--append-system-prompt`, but a file is more maintainable)
-- `USER.md` — your preferences, accumulated over time
-- `MEMORY.md` — curated long-term memory
+**ActionOS-CLI adoption:** Done. Created `workspace/` directory with:
+- `SOUL.md` — agent personality, values, behavioral rules
+- `USER.md` — evolving human profile (name, timezone, preferences)
+- `MEMORY.md` — curated long-term memory (decisions, learnings, facts)
+- `BOOT.md` — startup checklist (merged from OpenClaw's AGENTS.md)
+- `BOOTSTRAP.md` — first-run onboarding (bootstrap-then-delete)
 
-These get read and appended to the system prompt on every invocation.
+These are read and concatenated into `--append-system-prompt` on every invocation. See [Workspace](workspace.md).
 
 **2. Two-tiered memory**
 - `memory/YYYY-MM-DD.md` — raw daily conversation logs

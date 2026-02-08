@@ -101,6 +101,16 @@ job_cost_threshold = 0.50
 # Alert if daily total exceeds this (USD)
 daily_cost_threshold = 5.00
 
+[workspace]
+# Path to workspace directory (prompt templates)
+path = "workspace"
+
+# Whether to include workspace files in system prompt
+enabled = true
+
+# Max total tokens for workspace files (soft limit — warns if exceeded)
+max_tokens = 2000
+
 [dashboard]
 # Web dashboard port (0 = disabled)
 port = 8080

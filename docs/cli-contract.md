@@ -167,15 +167,31 @@ Claude CLI with `--output-format json` returns a JSON object. Actual shape:
 
 Default timeout: 120 seconds. Configurable per job type.
 
-## System prompt templates
+## System prompt construction
 
-All templates are appended via `--append-system-prompt`, never replacing Claude's built-in prompt.
+The `--append-system-prompt` value is built by the orchestrator from multiple sources:
 
-### Default (general assistant)
+### Prompt assembly order
 
 ```
-You are a personal assistant running inside ActionOS-CLI.
-Respond concisely and directly.
+1. workspace/SOUL.md       (agent personality — if exists)
+2. workspace/USER.md       (human profile — if exists)
+3. workspace/MEMORY.md     (curated long-term memory — if exists)
+4. workspace/BOOT.md       (startup checklist — or BOOTSTRAP.md if first run)
+5. Mode-specific instructions (see templates below)
+6. Skill descriptions       (from loaded skill manifests)
+7. Orchestrator instructions (skill_call format, constraints)
+```
+
+All workspace files are optional. If missing, the agent runs with mode-specific instructions only. See [Workspace](workspace.md) for file details.
+
+### Mode templates
+
+These are appended AFTER workspace files.
+
+**Default (general assistant):**
+
+```
 You have read-only access to files. If a task requires writing files, running commands,
 or any action beyond reading — describe exactly what you would do and wait for approval.
 Do not attempt to execute actions you don't have tools for.
@@ -191,19 +207,17 @@ To propose, include a JSON block:
 {"skill_proposal": {"name": "...", "description": "...", "tier": "...", "code": "...", "rationale": "..."}}
 ```
 
-### Research mode
+**Research mode:**
 
 ```
-You are a research assistant running inside ActionOS-CLI.
 Your job is to find information and summarize it.
 You have access to: Read, Glob, Grep, WebSearch, WebFetch.
 Do not modify any files. Report your findings concisely.
 ```
 
-### Build mode (after user approval)
+**Build mode (after user approval):**
 
 ```
-You are a development assistant running inside ActionOS-CLI.
 The user has approved execution for this task.
 You may use: Read, Write, Edit, Bash, Glob, Grep.
 Make minimal changes. Do not refactor beyond what was asked.

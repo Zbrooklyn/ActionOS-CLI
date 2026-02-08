@@ -64,12 +64,19 @@ actionos-cli/
     skills/           # Skill loader, manifest parser, execution
     store/            # SQLite schema, migrations, queries
     dashboard/        # (later) Minimal web UI for jobs/approvals
+  workspace/
+    SOUL.md           # Agent personality, values, behavioral rules
+    USER.md           # Evolving profile of the human
+    MEMORY.md         # Curated long-term memory
+    BOOT.md           # Startup checklist (read every session)
+    BOOTSTRAP.md      # First-run onboarding (used once, then deleted)
+    memory/           # Raw daily conversation logs
   skills/
     builtin/          # Safe defaults: notes, reminders, file-search
     custom/           # User-approved skills land here
   config/
     default.toml      # Bot token, allowed tools, limits, paths
-  docs/               # Design documentation (you are here)
+  docs/               # Design documentation
   tests/
   README.md
 ```
@@ -84,6 +91,7 @@ actionos-cli/
 | [Telegram UX](docs/telegram-ux.md) | Commands, buttons, message formats, two-pass approval UX |
 | [Schema](docs/schema.md) | SQLite tables, relationships, migration strategy |
 | [Security](docs/security.md) | Hard rules, threat model, what we refuse to do |
+| [Workspace](docs/workspace.md) | Prompt templates (SOUL, USER, MEMORY, BOOT), OpenClaw patterns |
 | [Config](docs/config.md) | TOML config schema, defaults, environment overrides |
 | [Build Phases](docs/build-phases.md) | Implementation order, milestones, definition of done |
 | [References](docs/references.md) | OpenClaw, LiteClaw, and Telegram+Claude bot analysis |

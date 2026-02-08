@@ -75,6 +75,25 @@ CREATED --> QUEUED --> RUNNING --> COMPLETED
 - Timeout: kill the CLI subprocess after T seconds (configurable, default 120s).
 - Budget: `--max-budget-usd` caps each invocation (configurable, default $0.50).
 
+### Workspace (Prompt Templates)
+
+**Responsibility:** Define agent personality, user context, and long-term memory via editable markdown files.
+
+The `workspace/` directory contains files read by the orchestrator and injected into `--append-system-prompt` on every invocation:
+
+| File | Purpose | Injected? |
+|------|---------|-----------|
+| `SOUL.md` | Agent personality, values, behavioral rules | Yes — always |
+| `USER.md` | Evolving profile of the human (name, timezone, preferences) | Yes — always |
+| `MEMORY.md` | Curated long-term memory (decisions, learnings, facts) | Yes — always |
+| `BOOT.md` | Startup checklist (available tools, constraints, skill format) | Yes — every session |
+| `BOOTSTRAP.md` | First-run onboarding (used once, then deleted) | Yes — replaces BOOT.md on first run |
+| `memory/*.md` | Raw daily conversation logs | No — too large, for review only |
+
+The orchestrator builds the system prompt by concatenating: SOUL.md + USER.md + MEMORY.md + BOOT.md + skill descriptions + orchestrator instructions. This is passed as `--append-system-prompt`, preserving Claude's built-in capabilities.
+
+Inspired by [OpenClaw's template system](references.md#openclaw-core-templates). See [Workspace](workspace.md) for full details.
+
 ### 3. CLI Runner (multi-CLI ready)
 
 **Responsibility:** Spawn an AI CLI as a subprocess, feed it a prompt, collect structured output.
