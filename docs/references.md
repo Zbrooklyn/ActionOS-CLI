@@ -227,65 +227,27 @@ Uses Python `claude-code-sdk` with CLI subprocess fallback. Most sophisticated s
 
 ---
 
-## Architectural Decision: Agent SDK vs Raw Subprocess
+## Architectural Decision: Subprocess Only (No Agent SDK)
 
-The research surfaced a critical finding that affects our entire CLI Contract.
+### Why not the Agent SDK?
 
-### The discovery
+The Claude Agent SDK (`claude-code-sdk`) requires `permissionMode: "bypassPermissions"` for non-interactive use. This:
+- Disables Claude Code's built-in permission system entirely
+- Shifts the safety boundary from Claude Code (hardened, maintained by Anthropic) to our code (new, less tested)
+- Requires `allowDangerouslySkipPermissions: true` — the flag name is a warning
 
-The **Claude Agent SDK** (`claude-code-sdk` for Python, `@anthropic-ai/claude-agent-sdk` for Node) provides:
-- Programmatic `query()` function with typed streaming events
-- `resume` parameter for session continuity (same as `--resume`)
-- **No API key needed** — it uses CLI auth under the hood
-- `PreToolUse` / `PostToolUse` hooks that fire **before** tool execution
-- AbortController for clean cancellation
+With our subprocess approach using `--allowedTools "Read,Glob,Grep"`:
+- Claude **literally cannot** use Write, Edit, or Bash. The CLI enforces it.
+- Even if our orchestrator has a bug, Claude can't escape the tool restriction.
+- The safety boundary is in Claude Code itself, not in our code.
 
-This means we have **two viable paths**, not one:
+Additionally, the Agent SDK docs state: "Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products." While we're a personal tool (not a product), using the raw CLI binary is the cleanest path — we are Claude Code, not a wrapper pretending to be.
 
-### Option A: Raw subprocess (current design)
+### Decision
 
-```
-echo "prompt" | claude --print --output-format json --resume <id> ...
-```
+**Subprocess only.** `claude --print --output-format json --resume`. Two-pass approval for tool escalation. The runner is built as a clean abstraction so adding Gemini CLI and Codex CLI later is a new module, not a rewrite.
 
-- Simpler mental model (spawn process, capture JSON)
-- Two-pass approval required (can't intercept mid-execution)
-- No streaming to Telegram during processing
-- All flags verified and documented
-
-### Option B: Agent SDK
-
-```python
-from claude_code_sdk import query, ClaudeCodeOptions
-
-async for event in query(prompt="...", options=ClaudeCodeOptions(resume=session_id)):
-    if event.type == "tool_use":
-        # INTERCEPT BEFORE EXECUTION
-```
-
-- Streaming events to Telegram (real-time "typing" with actual content)
-- **Single-pass approval** via PreToolUse hooks (intercept before execution, no two-pass needed)
-- AbortController for `/cancel`
-- Still uses CLI auth (no API key)
-- Slightly more complex setup
-
-### Recommendation
-
-**Start with Option A (subprocess) for Phase 1-3.** It's simpler, fully verified, and gets us to "it works" fastest.
-
-**Switch to Option B (SDK) in Phase 4 (approval gate).** The SDK's tool interception eliminates the two-pass hack. The streaming events improve Telegram UX. And it still satisfies "no API key."
-
-The subprocess design should be built as a clean abstraction so swapping the runner from subprocess to SDK is a one-module change.
-
-### Impact on existing docs
-
-If we adopt the SDK path later:
-- **cli-contract.md:** Add SDK invocation patterns alongside subprocess patterns
-- **architecture.md:** Two-pass approval becomes single-pass with PreToolUse hooks
-- **build-phases.md:** Phase 4 becomes "switch to SDK + implement PreToolUse approval"
-- **security.md:** `permissionMode: "bypassPermissions"` + custom safety layer replaces two-pass model
-
-These changes are **deferred** — the current docs are correct for the subprocess path. The SDK path is documented here as a known upgrade.
+See [Policy](policy.md) for the full auth and TOS analysis.
 
 ---
 

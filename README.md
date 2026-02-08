@@ -1,15 +1,15 @@
 # ActionOS-CLI
 
-**OpenClaw Lite — a personal AI assistant on Telegram, powered by Claude CLI.**
+**OpenClaw Lite — a personal AI assistant on Telegram, powered by official AI CLIs.**
 
-No API keys for Claude. No spoofing. No marketplace. Just a clean loop:
-Telegram message in, Claude CLI subprocess, structured reply out.
+No API keys. No spoofing. No marketplace. Official CLI auth only.
+Telegram message in, CLI subprocess, structured reply out.
 
 ---
 
 ## What this is
 
-A lightweight, always-on Telegram assistant that routes your messages through Claude CLI's native auth (your existing subscription). It borrows the good parts of OpenClaw's architecture — gateway, job orchestration, modular skills — without the sprawl, the public skill marketplace, or the unrestricted shell access.
+A lightweight, always-on Telegram assistant that routes your messages through official AI CLI tools (Claude Code, Gemini CLI, ChatGPT Codex CLI) using their native authentication — your existing subscriptions, no API keys. It borrows the good parts of OpenClaw's architecture — gateway, job orchestration, modular skills — without the sprawl, the public skill marketplace, or the unrestricted shell access.
 
 Think of it as 5 parts:
 
@@ -18,16 +18,17 @@ Think of it as 5 parts:
 | 1 | **Telegram Ingress** | Receives messages and approval buttons |
 | 2 | **State Store (SQLite)** | Threads, messages, jobs, tool calls, approvals, skills |
 | 3 | **Orchestrator / Worker** | Turns messages into jobs, dedupes, retries, rate-limits |
-| 4 | **Claude CLI Runner** | Subprocess wrapper — `claude --print --output-format json --resume` |
+| 4 | **CLI Runner** | Subprocess wrapper — Claude first, Gemini + Codex later |
 | 5 | **Skills Layer** | Allowlisted tools, no auto-install, approval-gated |
 
 ## Core principles
 
-- **No Claude API key.** All inference goes through `claude` CLI using your existing OAuth login. Zero token billing, zero key management.
-- **No spoofing.** Every reply is either genuinely from a Claude CLI run or clearly labeled as a system message. No cached replies pretending to be live inference. No hidden prompts. Full audit trail.
+- **Official CLI auth only.** All inference goes through official CLI tools (`claude`, `gemini`, `codex`) using their native OAuth login. No API keys stored or managed. No token extraction. No client spoofing. See [Policy](docs/policy.md).
+- **No spoofing.** Every reply is genuinely from a CLI run or clearly labeled as a system message. No cached replies pretending to be live inference. No hidden prompts. No bypassed permission systems. Full audit trail.
 - **No auto-install.** Skills are proposed by the agent, reviewed by you, activated only with your explicit approval.
 - **No unrestricted shell.** Default tools are read-only. Write/execute requires approval. Risky operations run sandboxed.
-- **Telegram is the only UI.** A minimal web dashboard comes later for jobs/logs/approvals, but Telegram is the primary interface.
+- **Multi-CLI ready.** Claude Code first, Gemini CLI and Codex CLI on the roadmap. Same auth model, same orchestrator, swappable runners.
+- **Telegram + Dashboard.** Telegram is the primary interface. A full dashboard (Kanban, analytics, approvals) comes later.
 
 ## How it works
 
@@ -86,6 +87,7 @@ actionos-cli/
 | [Config](docs/config.md) | TOML config schema, defaults, environment overrides |
 | [Build Phases](docs/build-phases.md) | Implementation order, milestones, definition of done |
 | [References](docs/references.md) | OpenClaw, LiteClaw, and Telegram+Claude bot analysis |
+| [Policy](docs/policy.md) | Auth decisions, TOS awareness, OpenClaw precedent |
 
 ## Build order (summary)
 

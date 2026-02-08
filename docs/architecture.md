@@ -75,11 +75,21 @@ CREATED --> QUEUED --> RUNNING --> COMPLETED
 - Timeout: kill the CLI subprocess after T seconds (configurable, default 120s).
 - Budget: `--max-budget-usd` caps each invocation (configurable, default $0.50).
 
-### 3. Claude CLI Runner
+### 3. CLI Runner (multi-CLI ready)
 
-**Responsibility:** Spawn `claude` as a subprocess, feed it a prompt, collect structured output.
+**Responsibility:** Spawn an AI CLI as a subprocess, feed it a prompt, collect structured output.
 
-This is the only component that touches Claude. It does not interpret the response — it just captures it and hands it to the orchestrator.
+This is the only component that touches AI models. It does not interpret the response — it just captures it and hands it to the orchestrator.
+
+The runner is an abstraction with one implementation per CLI:
+
+| Runner | CLI | Auth | Status |
+|--------|-----|------|--------|
+| `ClaudeRunner` | `claude --print --output-format json` | `claude login` (OAuth) | v1 |
+| `GeminiRunner` | `gemini` CLI | `gemini auth login` (Google OAuth) | Future |
+| `CodexRunner` | `codex` CLI | `codex auth` (OpenAI OAuth) | Future |
+
+All runners implement the same interface: accept a job record, return structured output (result text, session ID, cost, usage). The orchestrator doesn't know or care which CLI it's talking to.
 
 **First message in a thread (new session):**
 ```bash
