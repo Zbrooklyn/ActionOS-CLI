@@ -171,17 +171,28 @@ Default timeout: 120 seconds. Configurable per job type.
 
 The `--append-system-prompt` value is built by the orchestrator from multiple sources:
 
-### Prompt assembly order
+### Prompt assembly order (normal mode)
 
 ```
-1. workspace/SOUL.md       (agent personality — if exists)
-2. workspace/USER.md       (human profile — if exists)
-3. workspace/MEMORY.md     (curated long-term memory — if exists)
-4. workspace/TOOLS.md      (environment/infrastructure notes — if exists)
-5. workspace/BOOT.md       (operations manual — or BOOTSTRAP.md if first run)
-6. Mode-specific instructions (see templates below)
-7. Skill descriptions       (from loaded skill manifests)
-8. Orchestrator instructions (skill_call format, constraints)
+1. workspace/SOUL.md         (personality — if exists)
+2. workspace/IDENTITY.md     (identity card — if exists)
+3. workspace/USER.md         (human profile — if exists)
+4. workspace/MEMORY.md       (curated long-term memory — if exists)
+5. workspace/TOOLS.md        (environment notes — if exists)
+6. workspace/AGENTS.md       (operations manual — if exists)
+7. workspace/BOOT.md         (startup checklist — or BOOTSTRAP.md if first run)
+8. Mode-specific instructions (see templates below)
+9. Skill descriptions        (from loaded skill manifests)
+10. Orchestrator instructions (skill_call format, constraints)
+```
+
+### Prompt assembly order (dev mode)
+
+```
+1-7: Same as normal, but SOUL.dev.md, IDENTITY.dev.md, AGENTS.dev.md
+     are loaded instead of their base files.
+8.   Build mode instructions
+9-10: Same as normal.
 ```
 
 All workspace files are optional. If missing, the agent runs with mode-specific instructions only. See [Workspace](workspace.md) for file details.

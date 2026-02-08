@@ -19,6 +19,8 @@ How the bot behaves in Telegram — commands, message formats, approval buttons,
 | `/jobs` | Recent jobs: last 10 with status, duration, cost |
 | `/cancel` | Cancel the currently running job (sends SIGTERM to CLI process) |
 | `/clear` | Start a new Claude session (drops session, next message creates fresh one) |
+| `/dev` | Toggle dev mode — expanded tools (Write, Edit, Bash) for skill building |
+| `/mode` | Show current mode (normal or dev) |
 | `/help` | List available commands |
 
 ## Message handling

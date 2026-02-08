@@ -77,23 +77,26 @@ CREATED --> QUEUED --> RUNNING --> COMPLETED
 
 ### Workspace (Prompt Templates)
 
-**Responsibility:** Define agent personality, user context, and long-term memory via editable markdown files.
+**Responsibility:** Define agent personality, user context, and long-term memory via editable markdown files. Matches OpenClaw's naming convention for interoperability.
 
-The `workspace/` directory contains files read by the orchestrator and injected into `--append-system-prompt` on every invocation:
+The `workspace/` directory contains files read by the orchestrator and injected into `--append-system-prompt` on every invocation. Supports two modes (normal and dev):
 
-| File | Purpose | Injected? |
-|------|---------|-----------|
-| `SOUL.md` | Agent personality, values, behavioral rules | Yes — always |
-| `USER.md` | Evolving profile of the human (name, timezone, preferences, output formatting) | Yes — always |
-| `MEMORY.md` | Curated long-term memory (decisions, learnings, facts, patterns) | Yes — always |
-| `TOOLS.md` | Environment-specific infrastructure notes (machines, paths, services) | Yes — always |
-| `BOOT.md` | Operations manual: tools, memory management, safety, output rules | Yes — every session |
-| `BOOTSTRAP.md` | First-run onboarding (used once, then deleted) | Yes — replaces BOOT.md on first run |
-| `memory/*.md` | Raw daily conversation logs | No — too large, for review only |
+| File | Purpose | Normal mode | Dev mode |
+|------|---------|-------------|----------|
+| `SOUL.md` / `SOUL.dev.md` | Core personality and values | SOUL.md | SOUL.dev.md |
+| `IDENTITY.md` / `IDENTITY.dev.md` | Agent identity card (name, role) | IDENTITY.md | IDENTITY.dev.md |
+| `AGENTS.md` / `AGENTS.dev.md` | Operations manual (memory, safety, output) | AGENTS.md | AGENTS.dev.md |
+| `USER.md` | Evolving profile of the human | Shared | Shared |
+| `MEMORY.md` | Curated long-term memory | Shared | Shared |
+| `TOOLS.md` | Environment-specific infrastructure notes | Shared | Shared |
+| `BOOT.md` | Startup checklist + mode indicator | Shared | Shared |
+| `BOOTSTRAP.md` | First-run onboarding (used once, then deleted) | Replaces BOOT.md | N/A |
+| `HEARTBEAT.md` | Cron/heartbeat task configuration | Read by orchestrator | Read by orchestrator |
+| `memory/*.md` | Raw daily conversation logs | Not injected | Not injected |
 
-The orchestrator builds the system prompt by concatenating: SOUL.md + USER.md + MEMORY.md + TOOLS.md + BOOT.md + mode instructions + skill descriptions + orchestrator instructions. This is passed as `--append-system-prompt`, preserving Claude's built-in capabilities.
+In dev mode, the orchestrator swaps `.dev.md` variants for their base files. Dev mode gives the agent permission to build skills, modify project files, and run tests — with human approval. Triggered via `/dev` command in Telegram.
 
-Inspired by [OpenClaw's template system](references.md#openclaw-core-templates). See [Workspace](workspace.md) for full details.
+See [Workspace](workspace.md) for full details.
 
 ### 3. CLI Runner (multi-CLI ready)
 

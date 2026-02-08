@@ -65,12 +65,18 @@ actionos-cli/
     store/            # SQLite schema, migrations, queries
     dashboard/        # (later) Minimal web UI for jobs/approvals
   workspace/
-    SOUL.md           # Agent personality, values, behavioral rules
-    USER.md           # Evolving profile of the human (+ output formatting)
-    MEMORY.md         # Curated long-term memory (decisions, learnings, patterns)
+    SOUL.md           # Core personality and values
+    SOUL.dev.md       # Dev mode personality (builder mindset)
+    IDENTITY.md       # Agent identity card (name, role, platform)
+    IDENTITY.dev.md   # Dev mode identity (expanded role)
+    AGENTS.md         # Operations manual (memory, safety, output)
+    AGENTS.dev.md     # Dev mode operations (skill building, git)
+    USER.md           # Evolving profile of the human
+    MEMORY.md         # Curated long-term memory
     TOOLS.md          # Environment notes (machines, paths, services)
-    BOOT.md           # Operations manual: tools, memory, safety, output rules
+    BOOT.md           # Startup checklist + mode switching
     BOOTSTRAP.md      # First-run onboarding (used once, then deleted)
+    HEARTBEAT.md      # Cron/heartbeat task configuration
     memory/           # Raw daily conversation logs
   skills/
     builtin/          # Safe defaults: notes, reminders, file-search
