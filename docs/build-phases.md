@@ -6,6 +6,10 @@ Implementation order, milestones, and definition of done for each phase.
 
 Each phase produces something you can actually use daily. No phase is "just infrastructure" — every phase ends with a working feature you interact with through Telegram.
 
+**Priority order:** Telegram → Claude CLI → Dashboard → Other CLIs (Gemini, Codex)
+
+Claude Code is the primary engine. It has the strongest agentic capabilities (sub-agents, TodoWrite planning, session memory, best code quality). Gemini and Codex come later as additional runners — the architecture supports them, but they're not blocking anything.
+
 ---
 
 ## Phase 1: Telegram Bot (Echo)
@@ -53,9 +57,11 @@ Each phase produces something you can actually use daily. No phase is "just infr
 
 **Build:**
 - Subprocess wrapper: spawn `claude --print --output-format json` for first message (new session).
+- Auth via `ANTHROPIC_API_KEY` (compliant automation — see [Policy](policy.md)).
 - Capture `session_id` from JSON response, store in `threads` table.
 - Use `--resume <session_id>` for subsequent messages in the same thread.
 - Use `--append-system-prompt` (not `--system-prompt`) to preserve Claude's built-in capabilities.
+- Load workspace files (SOUL.md, IDENTITY.md, AGENTS.md, USER.md, MEMORY.md, TOOLS.md, BOOT.md) and concatenate into `--append-system-prompt`.
 - Set `--max-turns 5` and `--max-budget-usd 0.50` as defaults.
 - Set `--allowedTools "Read,Glob,Grep"` as the default read-only set.
 - Parse response: extract `result`, `session_id`, `total_cost_usd`, `subtype`, `usage`.
@@ -162,6 +168,7 @@ Each phase produces something you can actually use daily. No phase is "just infr
 - `skills` table tracks status (active, disabled, draft, rejected).
 - `/skills` command lists all skills with status.
 - Docker sandbox for skills that require it.
+- Dev mode (`/dev`) for building skills with Write/Edit/Bash tools.
 
 **Definition of done:**
 - Claude proposes a skill ("I need a tool to check weather").
@@ -171,12 +178,12 @@ Each phase produces something you can actually use daily. No phase is "just infr
 
 ---
 
-## Phase 8: Web Dashboard (Read-Only)
+## Phase 8: Web Dashboard
 
-**Goal:** Minimal web UI to view jobs, logs, approvals, and skills. No actions — just visibility.
+**Goal:** Web UI to view jobs, logs, approvals, skills, and costs.
 
 **Build:**
-- Simple HTTP server (Flask/FastAPI or even static HTML + SQLite REST).
+- Simple HTTP server (FastAPI).
 - Pages:
   - Jobs: table with status, duration, cost, tokens, prompt preview.
   - Logs: tool calls for a selected job (both builtin and skill).
@@ -184,69 +191,47 @@ Each phase produces something you can actually use daily. No phase is "just infr
   - Skills: list with status toggles.
   - Cost: daily/weekly summary.
 - No authentication beyond running on localhost (or basic auth if exposed).
-- No actions (no approve/deny from dashboard — that stays in Telegram).
+- Start read-only, add actions (approve/deny, skill management) later.
 
 **Definition of done:**
 - Open `localhost:8080` and see your job history.
-- Click a job to see its tool calls and the full job chain (parent + follow-ups).
-- See pending approvals (but approve them in Telegram).
-- See skill registry with enable/disable status.
+- Click a job to see its tool calls and the full job chain.
 - See cost summary for the past week.
+
+---
+
+## Phase 9: Gemini + Codex Integration
+
+**Goal:** Route tasks to Claude, Gemini, or Codex based on task type or user choice.
+
+This phase comes after the core product is working and stable. The runner abstraction from Phase 3 makes this a new module, not a rewrite.
+
+**Build:**
+- Gemini runner module (service account auth, `-p` flag, JSON output).
+- Codex runner module (API key auth, `codex exec`, JSON output).
+- Verify CLI flags against actual `--help` output for each CLI.
+- Smart routing: auto-pick CLI based on task type (see [CLI Comparison](cli-comparison.md)).
+- Per-message override: `/claude`, `/gemini`, `/codex` prefixes.
+- Config: default CLI, routing table, per-CLI model selection.
+- Cost tracking normalized across providers.
+- Dashboard updated with per-CLI breakdown.
+
+**Definition of done:**
+- `/gemini what's the weather` routes to Gemini CLI.
+- `/codex review this function` routes to Codex CLI.
+- Default messages route to Claude (or per routing config).
+- All three CLIs use compliant auth methods.
 
 ---
 
 ## Future phases (not planned in detail)
 
-### Multi-CLI: Gemini + Codex integration
-
-**Goal:** Route tasks to Claude, Gemini, or Codex based on user preference or task type.
-
-The runner abstraction (Phase 3) is designed for this. Each CLI gets its own runner module:
-
-| CLI | Binary | Auth | JSON output | Session resume |
-|-----|--------|------|-------------|----------------|
-| Claude Code | `claude --print --output-format json` | `claude login` | Yes | `--resume <id>` |
-| Gemini CLI | `gemini` | `gemini auth login` | TBD (verify) | TBD |
-| ChatGPT Codex CLI | `codex` | `codex auth` | TBD (verify) | TBD |
-
-**Build:**
-- New runner module per CLI (same interface: prompt in, structured result out).
-- Config: default CLI per thread, or `/model claude` `/model gemini` commands.
-- Session management per CLI (each has its own session format).
-- Cost tracking normalized across providers.
-- Skill system remains CLI-agnostic (orchestrator executes skills, not the CLI).
-
-**Key principle:** Same auth model for all — official CLI login, no API keys, no spoofing. Each provider's CLI handles its own authentication. See [Policy](policy.md).
-
-### Full Dashboard (OpenClaw / Asana / Trello style)
-
-**Goal:** Upgrade from read-only dashboard (Phase 8) to a full project management interface.
-
-**Build:**
-- **Kanban board:** Jobs as cards across columns (queued / running / needs approval / completed / failed).
-- **Conversation threads:** View full message history per thread, searchable.
-- **Skill management:** Enable/disable skills, view proposals, approve from dashboard (not just Telegram).
-- **Cost analytics:** Daily/weekly/monthly charts, per-CLI breakdown, token usage trends.
-- **Approval management:** Approve/deny pending actions from dashboard with full context.
-- **Cron management:** Create/edit/disable scheduled jobs with visual schedule editor.
-- **Real-time updates:** WebSocket push for live job status, new messages, approval requests.
-- **Mobile-responsive:** Works on phone browsers (or PWA).
-
-**Tech:** React or Vue frontend, FastAPI backend serving the existing SQLite data. The backend is thin — it just queries SQLite and exposes WebSocket events.
-
-**Inspiration:**
-- OpenClaw's dashboard (conversation view + job status + skill registry)
-- Asana/Trello (kanban boards, task cards, project views)
-- Grafana (cost/usage analytics panels)
-
-### Other future phases
-
 | Phase | Description |
 |-------|-------------|
+| Full Dashboard | Kanban board, conversation threads, cost analytics, WebSocket real-time updates |
 | Cron jobs | Scheduled recurring prompts with dedicated output threads |
 | Stream mode | `--output-format stream-json` for real-time Telegram feedback |
 | MCP skills | Register skills as MCP servers for native CLI integration |
-| Swarm mode | Multi-agent for complex tasks (research + implement + review) |
 | Voice messages | Telegram voice -> transcription -> Claude |
 | File handling | Photos/documents sent to bot -> processed by Claude |
 | Multi-user | Support multiple authorized Telegram users (separate threads/permissions) |
