@@ -18,7 +18,7 @@ Think of it as 5 parts:
 | 1 | **Telegram Ingress** | Receives messages and approval buttons |
 | 2 | **State Store (SQLite)** | Threads, messages, jobs, tool calls, approvals, skills |
 | 3 | **Orchestrator / Worker** | Turns messages into jobs, dedupes, retries, rate-limits |
-| 4 | **Claude CLI Runner** | Subprocess wrapper — `claude --print --output-format json` |
+| 4 | **Claude CLI Runner** | Subprocess wrapper — `claude --print --output-format json --resume` |
 | 5 | **Skills Layer** | Allowlisted tools, no auto-install, approval-gated |
 
 ## Core principles
@@ -38,16 +38,19 @@ You (Telegram)
 Telegram Bot (polling, no public IP needed)
   |
   v
-Orchestrator (job queue + dedup + rate limit)
+Orchestrator (job queue + dedup + rate limit + approval gate)
   |
   v
-claude --print --output-format json --session-id <thread_id>
-  |
+claude --print --output-format json --resume <session_id>
+  |  (first message omits --resume; session_id captured from response)
   v
 Parse JSON response --> store in SQLite --> reply to Telegram
+  |
+  v (if skill_call detected)
+Orchestrator executes skill --> feeds result back via --resume
 ```
 
-Each Telegram thread maps to a Claude CLI `--session-id`, giving you conversation continuity without building RAG or managing context windows yourself.
+Each Telegram thread maps to a Claude CLI session. The `session_id` comes from Claude CLI's JSON response on first invocation; subsequent messages use `--resume` for continuity. Claude is the brain (decides what to do), the orchestrator is the hands (executes skills, manages approvals).
 
 ## Folder structure
 
@@ -75,11 +78,12 @@ actionos-cli/
 | Doc | What it covers |
 |-----|----------------|
 | [Architecture](docs/architecture.md) | System diagram, component breakdown, data flow |
-| [CLI Contract](docs/cli-contract.md) | Claude CLI flags, invocation patterns, response parsing |
-| [Skills Manifest](docs/skills-manifest.md) | Skill format, approval flow, sandbox rules |
-| [Telegram UX](docs/telegram-ux.md) | Commands, buttons, message formats, approval UX |
+| [CLI Contract](docs/cli-contract.md) | Claude CLI flags, invocation patterns, JSON response parsing |
+| [Skills Manifest](docs/skills-manifest.md) | Skill format, orchestrator-as-executor model, approval flow |
+| [Telegram UX](docs/telegram-ux.md) | Commands, buttons, message formats, two-pass approval UX |
 | [Schema](docs/schema.md) | SQLite tables, relationships, migration strategy |
 | [Security](docs/security.md) | Hard rules, threat model, what we refuse to do |
+| [Config](docs/config.md) | TOML config schema, defaults, environment overrides |
 | [Build Phases](docs/build-phases.md) | Implementation order, milestones, definition of done |
 
 ## Build order (summary)

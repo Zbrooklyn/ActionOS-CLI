@@ -13,13 +13,13 @@ ActionOS-CLI is 5 components connected in a pipeline. Each component has one job
          v
 +------------------+
 |  Orchestrator    |  Converts messages to jobs. Deduplicates. Rate-limits.
-|  (Job Queue)     |  Prevents overlapping runs. Manages retries.
+|  (Job Queue)     |  Prevents overlapping runs. Manages retries + approvals.
 +--------+---------+
          |
          v
 +------------------+
 |  Claude CLI      |  Spawns `claude` subprocess per job.
-|  Runner          |  Parses JSON output. Enforces turn limits.
+|  Runner          |  Parses JSON output. Enforces turn + budget limits.
 +--------+---------+
          |
          v
@@ -31,7 +31,7 @@ ActionOS-CLI is 5 components connected in a pipeline. Each component has one job
          v
 +------------------+
 |  Skills Layer    |  Builtin + custom tools. Manifest-driven.
-|  (Allowlist)     |  Approval-gated. No auto-install.
+|  (Allowlist)     |  Executed by orchestrator, NOT by Claude directly.
 +------------------+
 ```
 
@@ -61,8 +61,9 @@ A "job" is **one Claude CLI invocation**. Everything more complex (pipelines, sc
 CREATED --> QUEUED --> RUNNING --> COMPLETED
                          |
                          +--> FAILED (retryable)
-                         +--> BLOCKED (needs approval)
+                         +--> NEEDS_APPROVAL (two-pass)
                          +--> TIMED_OUT
+                         +--> CANCELLED
 ```
 
 **Rules:**
@@ -72,25 +73,39 @@ CREATED --> QUEUED --> RUNNING --> COMPLETED
 - Retry: on transient CLI failures, retry up to 2 times with backoff (5s, 15s).
 - Rate limit: max N jobs per minute globally (configurable, default 10).
 - Timeout: kill the CLI subprocess after T seconds (configurable, default 120s).
+- Budget: `--max-budget-usd` caps each invocation (configurable, default $0.50).
 
 ### 3. Claude CLI Runner
 
 **Responsibility:** Spawn `claude` as a subprocess, feed it a prompt, collect structured output.
 
-This is the only component that touches Claude. It does not interpret the response — it just captures it and hands it to the state store.
+This is the only component that touches Claude. It does not interpret the response — it just captures it and hands it to the orchestrator.
 
-**Invocation pattern:**
+**First message in a thread (new session):**
 ```bash
-claude --print \
+echo "<prompt>" | claude --print \
        --output-format json \
-       --session-id <thread_id> \
-       --max-turns <N> \
-       --system-prompt <orchestrator_instructions> \
-       --allowedTools <tool_list>
+       --max-turns 5 \
+       --max-budget-usd 0.50 \
+       --append-system-prompt "<orchestrator_instructions>" \
+       --allowedTools "Read,Glob,Grep"
 ```
 
-**Input:** Job record (prompt, thread ID, tool permissions, turn limit).
-**Output:** Parsed JSON (assistant message, tool calls, cost metadata).
+**Subsequent messages (resume existing session):**
+```bash
+echo "<prompt>" | claude --print \
+       --output-format json \
+       --resume <session_id> \
+       --max-turns 5 \
+       --max-budget-usd 0.50 \
+       --append-system-prompt "<orchestrator_instructions>" \
+       --allowedTools "Read,Glob,Grep"
+```
+
+**Key:** The `session_id` comes from Claude CLI's JSON response on the first invocation. We store it in the `threads` table and use `--resume` for all subsequent messages.
+
+**Input:** Job record (prompt, session ID if resuming, tool permissions, turn limit, budget).
+**Output:** Parsed JSON (assistant message, session ID, cost, usage, subtype).
 
 See [CLI Contract](cli-contract.md) for full details.
 
@@ -101,7 +116,7 @@ See [CLI Contract](cli-contract.md) for full details.
 One SQLite file. No external database. Migrations handled by versioned SQL scripts.
 
 **Tables:**
-- `threads` — maps Telegram chats to Claude sessions
+- `threads` — maps Telegram chats to Claude session IDs (from CLI response)
 - `messages` — full conversation history
 - `jobs` — job queue with status tracking
 - `tool_calls` — what tools were invoked, args, results (audit log)
@@ -114,6 +129,16 @@ See [Schema](schema.md) for full DDL.
 ### 5. Skills Layer
 
 **Responsibility:** Provide modular tools the agent can use, with explicit permission boundaries.
+
+**Critical design decision: Claude does not execute skills directly.** Claude CLI's built-in tools (Read, Write, Bash, etc.) are controlled via `--allowedTools`. Our custom skills are a separate layer — the orchestrator executes them.
+
+The flow:
+1. Claude's response includes a structured `skill_call` JSON block (e.g., `{"skill_call": {"name": "notes", "inputs": {"action": "create", "title": "meeting"}}}`).
+2. The orchestrator detects the skill call, validates inputs against the manifest.
+3. The orchestrator executes the skill (subprocess or Docker sandbox).
+4. The result is fed back to Claude via `--resume` as the next user message.
+
+This means Claude is the **brain** (decides what to do) and the orchestrator is the **hands** (does it). Claude never has direct access to skill executors.
 
 Each skill is a folder:
 ```
@@ -132,30 +157,65 @@ skills/builtin/notes/
 
 See [Skills Manifest](skills-manifest.md) for the full spec.
 
-## Data flow: message to reply
+## Data flow: normal message
 
-Step-by-step for a normal message:
+Step-by-step for a read-only request (e.g., "What's in my notes?"):
 
 1. You send a message in Telegram.
 2. Bot polling loop picks it up, creates a `message` record, creates a `job` record with status `QUEUED`.
 3. Orchestrator picks up the job, checks for duplicates, checks rate limit.
 4. Orchestrator sets job status to `RUNNING`, invokes Claude CLI Runner.
-5. Runner spawns `claude --print --output-format json --session-id <thread> ...` with your message as stdin.
-6. Claude CLI processes the prompt, possibly makes tool calls (captured in JSON output).
-7. Runner parses JSON response, writes `message` (assistant reply) + `tool_calls` records.
+5. Runner spawns `claude --print --output-format json --resume <session_id> ...` with your message as stdin.
+6. Claude CLI processes the prompt using read-only tools. Returns JSON.
+7. Runner parses JSON response, writes `message` (assistant reply) record. Stores `session_id` if new.
 8. Orchestrator sets job status to `COMPLETED`.
 9. Bot sends the assistant reply to Telegram.
 
-## Data flow: approval-required action
+## Data flow: skill invocation
 
-1. Claude's response includes a tool call flagged as `write` or `execute` tier.
-2. Runner detects the tool call requires approval.
-3. Job status set to `BLOCKED`. An `approval` record is created.
-4. Bot sends you an approval message with inline buttons: `Approve | Deny | Sandbox`.
+Step-by-step when Claude wants to use a custom skill (e.g., "Save a note about the meeting"):
+
+1. Steps 1-6 same as above. Claude's `result` text includes a `skill_call` JSON block.
+2. Orchestrator detects the `skill_call` in the response.
+3. Orchestrator checks skill tier:
+   - **Read tier:** Auto-approved. Proceed.
+   - **Write tier:** Check if this skill has been approved before. If not, request approval.
+   - **Execute/system tier:** Always request approval.
+4. If approval needed: create `approval` record, send approval buttons to Telegram. Job status = `NEEDS_APPROVAL`. Wait.
+5. User taps `Approve` (or `Deny`/`Sandbox`).
+6. Orchestrator validates inputs against skill manifest.
+7. Orchestrator executes `run.py` (subprocess or Docker if sandboxed).
+8. Orchestrator captures skill output.
+9. Orchestrator creates a new job: `--resume <session_id>` with the skill output as the prompt: `"[Skill result for notes] Note created: data/notes/meeting.md"`.
+10. Claude receives the result, generates a final reply.
+11. Bot sends Claude's reply to Telegram.
+
+## Data flow: two-pass approval (risky built-in tools)
+
+When Claude needs tools beyond read-only (e.g., "Fix the bug in main.py"):
+
+1. **Pass 1 (read-only):** Orchestrator invokes Claude with `--allowedTools "Read,Glob,Grep"`.
+2. Claude analyzes the situation using read-only tools. Its response describes what it wants to do: "I need to edit main.py line 42 to fix the null check."
+3. Orchestrator detects the intent (Claude asked to write/execute but only had read tools).
+4. Orchestrator creates an `approval` record, sends approval request to Telegram.
 5. You tap `Approve`.
-6. Bot updates the `approval` record, creates a new job to execute the approved action.
-7. Runner re-invokes Claude CLI with the approved tool available.
-8. Normal flow resumes.
+6. **Pass 2 (escalated):** Orchestrator creates a new job with `--resume <session_id>` and `--allowedTools "Read,Write,Edit,Glob,Grep"`. Prompt: "Approved. Proceed."
+7. Claude executes the edit with the now-available tools.
+8. Normal completion flow.
+
+**Why two passes?** Claude CLI executes tools during its agent loop. There's no way to intercept a tool call mid-execution with `--print` mode. By restricting tools on pass 1, Claude can only describe what it wants. Pass 2 gives it the tools to act.
+
+## Data flow: cron job
+
+Scheduled tasks run without a user message triggering them:
+
+1. Orchestrator's timer fires based on `cron_jobs.next_run_at`.
+2. Orchestrator creates a job linked to a designated **system thread** (one per cron job, created on cron setup).
+3. Runner invokes Claude CLI with the cron job's prompt and tool permissions.
+4. On completion, bot sends the result to the cron job's thread in Telegram.
+5. Messages are clearly labeled: `[Cron: daily-summary] ...`
+
+Each cron job has its own Telegram thread so output doesn't pollute your main conversation.
 
 ## Concurrency model
 
@@ -168,5 +228,6 @@ Step-by-step for a normal message:
 
 - **No message broker** (Redis, RabbitMQ). SQLite job queue is sufficient for single-user.
 - **No container orchestration** (Kubernetes, Docker Compose for runtime). Docker is only used as a sandbox for risky skills.
-- **No WebSocket / real-time streaming**. Telegram messages are fire-and-forget. Streaming can come later.
+- **No WebSocket / real-time streaming** in v1. Telegram messages are fire-and-forget. `stream-json` mode can come later.
 - **No multi-user support**. This is a personal assistant. One Telegram user, one Claude login.
+- **No MCP in v1**. Skills are plain subprocess executors. MCP integration can be added later for richer tool protocols.

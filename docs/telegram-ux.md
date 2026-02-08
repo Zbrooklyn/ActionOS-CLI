@@ -14,11 +14,11 @@ How the bot behaves in Telegram — commands, message formats, approval buttons,
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome message + status check (CLI auth, DB, skills count) |
-| `/status` | Current job queue: running, queued, blocked, recent completed |
+| `/status` | Current job queue: running, queued, needs_approval, recent completed |
 | `/skills` | List enabled skills with tier and description |
 | `/jobs` | Recent jobs: last 10 with status, duration, cost |
 | `/cancel` | Cancel the currently running job (sends SIGTERM to CLI process) |
-| `/clear` | Start a new Claude session (generates new session ID for this thread) |
+| `/clear` | Start a new Claude session (drops session, next message creates fresh one) |
 | `/help` | List available commands |
 
 ## Message handling
@@ -49,50 +49,54 @@ Prefixed with a label to distinguish from Claude output:
 
 ```
 [System] Job queued. Position: 1
-[System] Job started. Session: abc123
-[System] Job completed in 3.2s ($0.002)
+[System] Job started. Resuming session.
+[System] Job completed in 3.2s ($0.002, 1.2k tokens)
 [System] Job failed: Claude CLI returned an error. Check /status for details.
 [System] Job timed out after 120s.
+[System] Session lost. Starting fresh.
 ```
 
 #### 3. Approval request
 
-Sent when Claude wants to perform a risky action:
+**For tool escalation (two-pass approval):**
+
+When Claude needs write/execute tools beyond the default read-only set:
 
 ```
 Approval needed
 
-Claude wants to: Write file "data/notes/meeting.md"
-Skill: notes (tier: write)
-Risk: low
+Claude analyzed the task and wants to proceed with:
+"Edit main.py line 42 to fix the null check, then run tests."
+
+This requires: Write, Edit, Bash
+Current permissions: Read-only
 
 [Approve] [Deny]
 ```
 
-For higher-risk actions:
+Approving triggers pass 2: `--resume` with escalated `--allowedTools`.
+
+**For skill execution (write+ tier):**
 
 ```
 Approval needed
 
-Claude wants to: Run shell command "npm test"
-Skill: run-test (tier: execute)
-Risk: medium
+Claude wants to use skill: notes (tier: write)
+Action: Create note "meeting-notes" in data/notes/
 
-Command: npm test
-Working directory: /home/user/project
-
-[Approve] [Sandbox] [Deny]
+[Approve] [Deny]
 ```
 
-For new skill proposals:
+**For new skill proposals:**
 
 ```
 New skill proposed
 
 Name: github-issues
 Tier: read
-Permissions: network
+Permissions: network (yes), filesystem (no), shell (no)
 Description: Search and read GitHub issues for a repository.
+Risk: low
 
 [Approve] [Sandbox Only] [Reject] [View Code]
 ```
@@ -103,8 +107,8 @@ All approval buttons use Telegram's `InlineKeyboardMarkup` with callback data:
 
 | Button | Callback data | Action |
 |--------|--------------|--------|
-| Approve | `approve:<approval_id>` | Approve and execute |
-| Deny | `deny:<approval_id>` | Reject, notify Claude |
+| Approve | `approve:<approval_id>` | Approve and execute (escalate tools or run skill) |
+| Deny | `deny:<approval_id>` | Reject, resume Claude with "Denied. Suggest alternative." |
 | Sandbox | `sandbox:<approval_id>` | Approve but force sandbox execution |
 | View Code | `viewcode:<approval_id>` | Send skill source as a message |
 | Sandbox Only | `sandboxonly:<approval_id>` | Approve skill but force `sandbox: true` |
@@ -117,10 +121,10 @@ All approval buttons use Telegram's `InlineKeyboardMarkup` with callback data:
   ```
   Approval needed
 
-  Claude wants to: Write file "data/notes/meeting.md"
-  Skill: notes (tier: write)
+  Claude analyzed the task and wants to proceed with:
+  "Edit main.py line 42 to fix the null check."
 
-  Approved at 14:32
+  Approved at 14:32. Executing with escalated permissions.
   ```
 - If no response within 10 minutes, the approval times out and the job is marked `TIMED_OUT`.
 
@@ -138,25 +142,41 @@ All approval buttons use Telegram's `InlineKeyboardMarkup` with callback data:
 | Rate limited | `[System] Rate limit reached. Job queued, will retry in {N}s.` |
 | Job failed | `[System] Job failed: {error_message}. Use /jobs to see details.` |
 | Timeout | `[System] Job timed out after {N}s. Try breaking the task into smaller steps.` |
+| Budget exceeded | `[System] Job hit budget limit (${budget}). Use /jobs to see details.` |
+| Turn limit hit | `[System] Job hit turn limit ({N} turns). Task may need to be broken down.` |
+| Session corrupted | `[System] Previous session was lost. Starting fresh.` |
 | Unknown error | `[System] Unexpected error. Logged for debugging. Job ID: {id}` |
 
 ## Thread model
 
 - Each Telegram chat (private chat with the bot) is one thread.
 - If you use Telegram's "Topics" feature in a group, each topic is a separate thread.
-- Each thread gets its own Claude CLI session ID.
-- `/clear` resets the session for the current thread only.
+- Each thread gets its own Claude CLI session (stored as `session_id` from CLI response).
+- `/clear` resets the session for the current thread only (sets `session_id` to NULL, next message creates a fresh session).
 
-## Notifications (future)
+## Cron output
 
-For scheduled tasks (reminders, cron jobs), the bot proactively sends messages:
+Cron jobs send output to dedicated threads, not your main conversation:
+
+```
+[Cron: daily-summary] Here's your summary for today...
+```
 
 ```
 [Reminder] Meeting with Alex in 15 minutes.
 ```
 
+These are clearly labeled and never pretend to be Claude responses to your messages.
+
+If a cron job fails:
+
 ```
-[Cron] Daily backup completed. 3 files synced.
+[Cron: daily-backup] Job failed: timeout after 120s. Check /jobs for details.
 ```
 
-These are clearly labeled and never pretend to be Claude responses.
+## Message ordering
+
+Telegram does not guarantee message order in all cases. Our approach:
+- We process messages in the order received by our polling loop.
+- If two messages arrive for the same thread while a job is running, the second is queued (not dropped).
+- We never reorder or deduplicate based on Telegram's message ID — only based on our own dedup window (same content within 5s).

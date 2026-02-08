@@ -4,7 +4,7 @@ How skills are defined, proposed, approved, and executed.
 
 ## What a skill is
 
-A skill is a modular tool the agent can invoke. It has a manifest (what it does, what it needs), an executor (the code), and a permission tier.
+A skill is a modular tool that the **orchestrator** (not Claude CLI) can execute on Claude's behalf. Claude is the brain — it decides when a skill should be used. The orchestrator is the hands — it actually runs the skill code.
 
 Each skill lives in its own folder:
 
@@ -26,6 +26,50 @@ skills/
       run.py
       README.md
 ```
+
+## How Claude invokes skills (orchestrator-as-executor model)
+
+Claude CLI has its own built-in tools (Read, Write, Edit, Bash, etc.) controlled via `--allowedTools`. Our custom skills are **separate** — Claude cannot call them directly.
+
+### The flow
+
+1. The orchestrator includes skill descriptions in `--append-system-prompt`:
+   ```
+   Available custom skills:
+   - notes: Create, read, update, and search personal notes.
+   - reminders: Set reminders with natural language times.
+
+   To use a skill, include this JSON block in your response:
+   {"skill_call": {"name": "<skill_name>", "inputs": {<inputs>}}}
+   ```
+
+2. Claude decides to use a skill and includes the JSON block in its text response:
+   ```
+   I'll save that as a note for you.
+   {"skill_call": {"name": "notes", "inputs": {"action": "create", "title": "meeting", "content": "Discussed Q3 roadmap..."}}}
+   ```
+
+3. The orchestrator parses the `skill_call` from Claude's response.
+
+4. The orchestrator validates inputs against the skill's manifest schema.
+
+5. The orchestrator checks permissions (tier-based approval).
+
+6. The orchestrator executes `run.py` as a subprocess (or in Docker if sandboxed).
+
+7. The orchestrator feeds the result back to Claude via `--resume`:
+   ```
+   [Skill result: notes] Note created successfully: data/notes/meeting.md
+   ```
+
+8. Claude generates a final user-facing reply incorporating the result.
+
+### Why not let Claude call skills directly?
+
+- **No Bash needed.** If Claude called skills via Bash, we'd need Bash in `--allowedTools` for every job. That's the unrestricted shell access we're trying to avoid.
+- **No spoofing.** The orchestrator controls what runs. Claude can't trick the system into executing a skill that doesn't exist or bypassing approval.
+- **Clean audit trail.** Every skill execution goes through the orchestrator's logging, not buried inside Claude's internal tool loop.
+- **Approval is possible.** Since the orchestrator intercepts before execution, it can pause for approval without mid-execution process hacks.
 
 ## Manifest schema
 
@@ -77,7 +121,7 @@ skills/
 |-------|------|-------------|
 | `name` | string | Unique skill identifier. Lowercase, hyphens only. |
 | `version` | string | Semver. |
-| `description` | string | One sentence. Shown to the agent so it knows when to use this skill. |
+| `description` | string | One sentence. Included in Claude's system prompt so it knows when to use this skill. |
 | `author` | string | `"builtin"` or your name/handle. |
 | `tier` | enum | `"read"`, `"write"`, `"execute"`, `"system"`. Determines approval requirements. |
 | `inputs` | object | JSON Schema for the skill's parameters. |
@@ -113,19 +157,27 @@ These ship with ActionOS-CLI and are pre-approved:
 
 ## How the agent proposes a new skill
 
-When Claude determines it needs a capability it doesn't have, it can propose a new skill.
+When Claude determines it needs a capability it doesn't have, it can propose a new skill by including a `skill_proposal` JSON block in its response.
 
 ### Proposal format
-
-Claude generates and returns (as part of its response):
 
 ```json
 {
   "skill_proposal": {
-    "manifest": { ... },
-    "code": "# Python code for run.py\n...",
-    "example": "Example invocation and expected output",
-    "rationale": "Why this skill is needed"
+    "manifest": {
+      "name": "github-issues",
+      "version": "1.0.0",
+      "description": "Search and read GitHub issues for a repository.",
+      "tier": "read",
+      "inputs": { "repo": {"type": "string", "required": true}, "query": {"type": "string", "required": false} },
+      "outputs": { "type": "string" },
+      "permissions": { "filesystem": [], "network": true, "shell": false, "paths": [] },
+      "risk": "low",
+      "sandbox": false
+    },
+    "code": "#!/usr/bin/env python3\nimport sys, json, urllib.request\n...",
+    "example": "Input: {\"repo\": \"user/repo\", \"query\": \"bug\"}\nOutput: \"Found 3 issues matching 'bug'...\"",
+    "rationale": "User frequently asks about GitHub issues. A dedicated skill avoids web scraping each time."
   }
 }
 ```
@@ -145,10 +197,10 @@ Claude generates and returns (as part of its response):
    ```
 3. You tap a button:
    - **Approve**: Skill is written to `skills/custom/`, `enabled: true`.
-   - **Sandbox Only**: Skill is written but `sandbox: true` forced.
+   - **Sandbox Only**: Skill is written but `sandbox: true` forced regardless of manifest.
    - **Reject**: Skill is discarded. Reason optionally noted.
-   - **View Code**: Full source sent as a Telegram message for review.
-4. If approved, the skill is available on the next invocation.
+   - **View Code**: Full source sent as a Telegram message for review before deciding.
+4. If approved, the skill description is added to the system prompt on the next invocation.
 
 ### What the agent cannot do
 
@@ -156,6 +208,7 @@ Claude generates and returns (as part of its response):
 - Modify an existing skill's manifest or code. (Propose a new version instead.)
 - Propose a skill with `tier: "system"` that has `sandbox: false`.
 - Access paths outside the skill's declared `permissions.paths`.
+- Execute a skill directly — only the orchestrator can run skill code.
 
 ## Skill execution
 
@@ -165,8 +218,9 @@ When the orchestrator invokes a skill:
 2. Check tier approval (auto, one-time, or per-invocation).
 3. If `sandbox: true`, run inside Docker container with limited resources.
 4. Execute `run.py` (or `run.js`) with inputs as JSON on stdin.
-5. Capture stdout as the skill's output.
+5. Capture stdout as the skill's output. Capture stderr for error logging.
 6. Log everything to `tool_calls` table (skill name, inputs, output, duration, success/fail).
+7. Feed output back to Claude via `--resume` as the next message.
 
 ### Sandbox execution
 
@@ -193,16 +247,27 @@ The orchestrator reads skills at startup:
 1. Scan `skills/builtin/` and `skills/custom/` for folders with `manifest.json`.
 2. Validate each manifest.
 3. Build a tool registry: `{ name -> manifest + executor path }`.
-4. Pass the skill descriptions to Claude via the system prompt so it knows what's available.
+4. On each Claude CLI invocation, include skill descriptions in `--append-system-prompt`.
 
-On each Claude CLI invocation, the system prompt includes:
+The system prompt includes:
 
 ```
-Available tools:
-- notes: Create, read, update, and search personal notes.
-- reminders: Set reminders with natural language times.
-- file-search: Search files by name or content.
-- web-fetch: Fetch a URL and return content.
+Available custom skills:
+- notes: Create, read, update, and search personal notes. Inputs: action (create|read|update|search|list), title?, content?, query?
+- reminders: Set reminders with natural language times. Inputs: action (set|list|cancel), text?, time?
+- file-search: Search files by name or content. Inputs: directory, pattern?, content_query?
+
+To use a skill, include a JSON block in your response:
+{"skill_call": {"name": "<skill_name>", "inputs": {<inputs matching the skill's schema>}}}
 
 If you need a tool that isn't listed, you may propose a new skill.
 ```
+
+## Future: MCP integration
+
+In a later version, skills could be registered as MCP (Model Context Protocol) tool servers. Claude CLI natively supports MCP via `--mcp-config`. This would let Claude call skills as first-class tools rather than via JSON blocks in text.
+
+Pros: cleaner integration, Claude can use skills in its internal tool loop.
+Cons: each skill must implement the MCP protocol, more complexity.
+
+Decision deferred to after v1 is stable.

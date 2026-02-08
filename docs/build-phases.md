@@ -18,6 +18,7 @@ Each phase produces something you can actually use daily. No phase is "just infr
 - User ID validation (single-user lockdown).
 - Echo incoming messages back.
 - Implement `/start` and `/help` commands.
+- Config file (`config/default.toml`) with bot token and user ID.
 
 **Definition of done:**
 - You send a message, bot replies with the same text.
@@ -51,18 +52,24 @@ Each phase produces something you can actually use daily. No phase is "just infr
 **Goal:** Messages go to Claude CLI and real responses come back.
 
 **Build:**
-- Subprocess wrapper: spawn `claude --print --output-format json --session-id <id>`.
-- Pipe user message as input, capture JSON output.
-- Parse response, extract `result` field.
-- Store assistant message in `messages` table.
+- Subprocess wrapper: spawn `claude --print --output-format json` for first message (new session).
+- Capture `session_id` from JSON response, store in `threads` table.
+- Use `--resume <session_id>` for subsequent messages in the same thread.
+- Use `--append-system-prompt` (not `--system-prompt`) to preserve Claude's built-in capabilities.
+- Set `--max-turns 5` and `--max-budget-usd 0.50` as defaults.
+- Set `--allowedTools "Read,Glob,Grep"` as the default read-only set.
+- Parse response: extract `result`, `session_id`, `total_cost_usd`, `subtype`, `usage`.
+- Store assistant message in `messages` table. Update `threads.session_id`.
 - Send Claude's reply to Telegram.
-- Error handling: CLI not found, auth expired, timeout, invalid JSON.
+- Error handling: CLI not found, auth expired, timeout, invalid JSON, session corruption.
+- `/clear` sets `threads.session_id` to NULL (next message creates fresh session).
 
 **Definition of done:**
 - You send a message, Claude responds through the bot.
-- Conversation has continuity (session ID preserves context).
+- Conversation has continuity (`--resume` preserves context).
 - `/clear` starts a fresh session.
 - CLI errors produce clear system messages in Telegram.
+- `total_cost_usd` and token counts logged per job.
 
 **This is the "it works" milestone.** From here on, you have a usable personal assistant.
 
@@ -74,18 +81,22 @@ Each phase produces something you can actually use daily. No phase is "just infr
 
 **Build:**
 - `approvals` table.
-- Detect tool calls in Claude's JSON output that exceed read tier.
-- Generate approval request message with inline keyboard buttons.
-- Handle button callbacks: approve, deny, sandbox.
-- On approval: re-invoke Claude with escalated `--allowedTools`.
-- On denial: inform Claude, suggest alternative approach.
+- **Two-pass approval for built-in tools:**
+  1. Pass 1 runs with read-only tools. Claude describes what it wants to do.
+  2. Orchestrator detects escalation request (Claude's response text asks to write/execute).
+  3. Approval request sent to Telegram with inline keyboard buttons.
+  4. On approval: Pass 2 runs with `--resume <session_id>` and escalated `--allowedTools`.
+  5. On denial: `--resume` with "Denied. Suggest alternative."
+- Handle button callbacks: approve, deny.
 - Timeout: auto-expire approvals after 10 minutes.
+- `parent_job_id` links pass 2 job back to pass 1 for audit trail.
 
 **Definition of done:**
 - When Claude wants to write a file, you see an approval button in Telegram.
-- Approving lets the action proceed. Denying blocks it gracefully.
+- Approving lets Claude proceed with the tools it needs. Denying blocks it gracefully.
 - The approval and decision are logged in the database.
 - Expired approvals are handled (job marked timed_out, you're notified).
+- Permissions are revoked after the job completes (clean slate).
 
 ---
 
@@ -96,51 +107,58 @@ Each phase produces something you can actually use daily. No phase is "just infr
 **Build:**
 - Worker loop that polls `jobs` table for `queued` status.
 - One job at a time per thread, parallel across threads.
-- Duplicate detection (same message within 5s window).
+- Duplicate detection (same message content within 5s window).
 - Retry logic (transient failures, max 2 retries, backoff).
 - Rate limiting (max N jobs/minute, configurable).
+- Graceful shutdown: on SIGTERM, kill subprocess, mark interrupted jobs as failed.
+- Recovery on restart: scan for `running` jobs, mark as failed.
 - `/cancel` command kills the running subprocess.
-- `/jobs` command shows recent job history with status, duration, cost.
+- `/jobs` command shows recent job history with status, duration, cost, tokens.
 
 **Definition of done:**
 - Rapid-fire messages don't create duplicate jobs.
 - A failed job retries automatically, then gives up gracefully.
 - You can cancel a long-running job from Telegram.
 - `/jobs` shows a useful history.
+- Restarting the bot doesn't leave zombie jobs in `running` state.
 
 ---
 
-## Phase 6: Safe Tools v1
+## Phase 6: Safe Skills v1
 
-**Goal:** First set of actually useful skills — notes, reminders, file search.
+**Goal:** First set of actually useful custom skills — notes, reminders, file search.
 
 **Build:**
 - Skill loader: scan `skills/builtin/` for `manifest.json` files.
-- Skill executor: validate inputs, run `run.py`, capture output.
+- Skill executor: validate inputs against manifest schema, run `run.py` as subprocess, capture output.
 - `tool_calls` table for audit logging.
+- Skill descriptions injected into `--append-system-prompt` so Claude knows what's available.
+- Claude requests skills via `{"skill_call": {...}}` JSON blocks in its response text.
+- Orchestrator detects skill calls, executes, feeds result back via `--resume`.
 - Implement builtin skills:
   - `notes`: CRUD for text notes in `data/notes/`.
   - `reminders`: store with natural-language time parsing, simple cron check.
   - `file-search`: glob + grep over a specified directory.
-- System prompt includes available skill descriptions.
 
 **Definition of done:**
 - "Save a note about the meeting today" creates a file in `data/notes/`.
 - "Remind me to call Alex tomorrow at 9am" stores a reminder that fires.
 - "Find files about authentication in ~/project" returns results.
-- Every skill invocation is logged in `tool_calls`.
+- Every skill invocation is logged in `tool_calls` with `tool_type = 'skill'`.
+- Claude gets the skill result and uses it in its response.
 
 ---
 
-## Phase 7: Skills Folder (Custom Skills)
+## Phase 7: Custom Skills (Self-Extending)
 
 **Goal:** The agent can propose new skills, you can approve them, and they become available.
 
 **Build:**
-- Skill proposal detection in Claude's output.
+- Skill proposal detection: parse `{"skill_proposal": {...}}` from Claude's response.
 - Proposal message with approval buttons in Telegram.
-- "View Code" button sends full source.
+- "View Code" button sends full source as a Telegram message.
 - On approval: write skill to `skills/custom/`, register in `skills` table.
+- On "Sandbox Only": write skill with `sandbox: true` forced.
 - `skills` table tracks status (active, disabled, draft, rejected).
 - `/skills` command lists all skills with status.
 - Docker sandbox for skills that require it.
@@ -148,7 +166,7 @@ Each phase produces something you can actually use daily. No phase is "just infr
 **Definition of done:**
 - Claude proposes a skill ("I need a tool to check weather").
 - You review the code, approve it.
-- Next conversation, Claude can use the new skill.
+- On next invocation, Claude's system prompt includes the new skill.
 - Sandboxed skills run in Docker with resource limits.
 
 ---
@@ -160,18 +178,20 @@ Each phase produces something you can actually use daily. No phase is "just infr
 **Build:**
 - Simple HTTP server (Flask/FastAPI or even static HTML + SQLite REST).
 - Pages:
-  - Jobs: table with status, duration, cost, prompt preview.
-  - Logs: tool calls for a selected job.
+  - Jobs: table with status, duration, cost, tokens, prompt preview.
+  - Logs: tool calls for a selected job (both builtin and skill).
   - Approvals: pending + history.
   - Skills: list with status toggles.
+  - Cost: daily/weekly summary.
 - No authentication beyond running on localhost (or basic auth if exposed).
 - No actions (no approve/deny from dashboard — that stays in Telegram).
 
 **Definition of done:**
 - Open `localhost:8080` and see your job history.
-- Click a job to see its tool calls.
+- Click a job to see its tool calls and the full job chain (parent + follow-ups).
 - See pending approvals (but approve them in Telegram).
 - See skill registry with enable/disable status.
+- See cost summary for the past week.
 
 ---
 
@@ -179,7 +199,9 @@ Each phase produces something you can actually use daily. No phase is "just infr
 
 | Phase | Description |
 |-------|-------------|
-| Cron jobs | Scheduled recurring prompts (daily summary, backups, etc.) |
+| Cron jobs | Scheduled recurring prompts with dedicated output threads |
+| Stream mode | `--output-format stream-json` for real-time Telegram feedback |
+| MCP skills | Register skills as MCP servers for native Claude CLI integration |
 | Swarm mode | Multi-agent for complex tasks (research + implement + review) |
 | Voice messages | Telegram voice -> transcription -> Claude |
 | File handling | Photos/documents sent to bot -> processed by Claude |
@@ -194,8 +216,9 @@ Each phase produces something you can actually use daily. No phase is "just infr
 
 - `python-telegram-bot` is mature and well-documented.
 - `subprocess` module handles Claude CLI spawning cleanly.
-- SQLite support is built into the standard library.
+- `sqlite3` is built into the standard library.
 - Skill executors are Python by default (trivial to run).
+- `asyncio` provides the event loop for concurrent thread handling.
 - Fast to prototype, easy to read, easy to hand off.
 
 If performance becomes an issue (unlikely for single-user), specific components can be rewritten. But Python is the right call for "get it working and keep it simple."
