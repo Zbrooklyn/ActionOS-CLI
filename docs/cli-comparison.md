@@ -45,6 +45,96 @@ No single CLI wins at everything. The developers getting the best results in 202
 
 Claude Code has the richest tool set. Gemini and Codex route most file operations through shell commands.
 
+## Agentic capabilities
+
+This is the most important section for ActionOS-CLI. How each CLI works as an autonomous agent — not just what models they have, but how they think, plan, execute, recover, and manage context.
+
+### Agent loop
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| **Loop type** | Think → Tool Use → Observe → repeat | ReAct inner loop (shell-first) | ReAct loop |
+| **Planning** | `TodoWrite` — structured task lists with status tracking, injected as system reminders after each tool call | Implicit in reasoning outputs, no built-in task list | Implicit in reasoning, no built-in task list |
+| **Self-correction** | Observes errors, updates plan, retries with different approach | Observes shell output, retries | Observes output, retries. `/introspect` for debugging decisions |
+| **Sub-agents** | **Native** — `dispatch_agent` spawns sub-agents with independent context windows. Swarm architecture for parallel execution. | None native — external via Agents SDK. Can run as MCP server for orchestration. | None native — community proposals exist (PR #4883). External orchestration via scripts. |
+| **Tool chain limit** | Unlimited — loop runs until model says `end_turn` | Unlimited — inner loop runs until model says `done` | Unlimited within 1M token window |
+| **Mid-turn steering** | No | **Yes** — submit messages while Codex is working to redirect in real time | No |
+
+**Why this matters for ActionOS-CLI:** Claude Code's `TodoWrite` and sub-agent system mean it can decompose complex tasks autonomously — crucial for multi-step Telegram requests. Codex's mid-turn steering could enable "cancel and redirect" UX. Gemini's lack of sub-agents means it's better for single-focus tasks.
+
+### Context and memory
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| **Context window** | 200K tokens (1M beta) | ~200K tokens | **1M tokens** |
+| **Max output** | 128K tokens (Opus 4.6) | Not disclosed | 64K tokens |
+| **Compaction** | Auto at ~75% usage, manual `/compact`. Strips old thinking blocks. | Auto (known stability issues — compaction loops where context drops to ~5%). | Auto + **deliberate goal-directed** (specify what to preserve). Manual `/compress`. |
+| **Session resume** | `--resume <session_id>` | `codex resume --last` or `codex resume <id>` | `/chat save` and `/chat resume` |
+| **Cross-session memory** | **Automatic Session Memory** — extracts structured summaries, saves to disk, injects into future sessions. + `CLAUDE.md` for project instructions. | `AGENTS.md` for project instructions. Thread archiving. No automatic memory extraction. | `GEMINI.md` for project instructions. User-level memory. No automatic extraction. |
+| **Session forking** | No | **Yes** — `/fork` branches from any point in the transcript | No (but has "Rewind" to navigate history) |
+
+**Why this matters for ActionOS-CLI:** Claude Code's automatic session memory means the agent gets smarter over time without us building anything. Gemini's 1M context means fewer compaction cycles for long tasks. Codex's forking could enable "try both approaches" patterns. All three support session resume — critical for our `--resume` based conversation continuity.
+
+### Permission and safety model
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| **Default behavior** | Prompts user for risky actions (file writes, shell, new network domains) | Depends on policy: `suggest` (confirm writes), `auto-edit`, `full-auto` | Depends on mode: `default` (confirm each), `auto_edit`, `yolo`, `plan` (read-only) |
+| **Full autonomy** | `--dangerously-skip-permissions` | `--full-auto` (within sandbox) or `--yolo` (no sandbox) | `yolo` mode (but high-priority deny rules still fire) |
+| **Tool restrictions** | `--allowedTools` and `--disallowedTools` flags | Approval policies (suggest/auto-edit/full-auto) | Policy engine with per-command allowlists |
+| **OS sandbox** | Bubblewrap (Linux), Seatbelt (macOS). Network proxy with domain allowlists. | **Seatbelt (macOS), Landlock+seccomp (Linux).** Dedicated `codex-linux-sandbox` binary. Docker fallback. | Docker, Podman, or Seatbelt. Default was "no sandbox" until security fix in v0.1.14. |
+| **Cloud isolation** | No | **Yes — Cloud Codex** runs in fully isolated containers with internet disabled | No |
+| **Static analysis** | Pre-execution analysis flags risky commands (84% fewer permission prompts) | No | No |
+| **Smart approvals** | Auto-allow for safely sandboxable commands | Auto prefix-rule suggestions on escalation | "Always Allow" persistence per tool |
+
+**Why this matters for ActionOS-CLI:** Our two-pass approval model (pass 1 read-only, approve, pass 2 escalated) maps cleanest to Claude Code's `--allowedTools`. Codex's approval policies work differently — we'd need to translate. Gemini's policy engine is the most configurable but adds complexity.
+
+### Extensibility
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| **MCP servers** | Mature. `mcp__<server>__<action>` naming. | Mature. STDIO + HTTP. Allowlisting for security. | Mature. FastMCP integration. Auto-prefixes conflicting names. |
+| **Hooks / callbacks** | **Rich** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Stop`, `SessionStart`, `SubagentStop`, `Notification` | Limited — event streams for clients, no user-defined middleware | **Rich** — pre-tool-*selection* (before model chooses), pre/post execution. Per-hook toggles. |
+| **Custom sub-agents** | `.claude/agents/` markdown files or inline JSON. Background concurrent execution. | External via Agents SDK typed handoffs | None native, external via ADK |
+| **Plugins** | Bundles (sub-agents + hooks + MCP + skills + commands) as distributable units | Agent Skills (SKILL.md with progressive disclosure) | Extensions (MCP + GEMINI.md + commands + playbooks) via catalog |
+| **Runtime tool creation** | Via MCP + beta "Tool Search Tool" for on-demand discovery | Via MCP + Skills | Via MCP + **skill-creator skill** (generates new skills during a session) |
+
+**Why this matters for ActionOS-CLI:** Claude Code's hooks are the most useful for our architecture — `PreToolUse` could feed into our approval gate, `PostToolUse` into our audit log. Gemini's pre-tool-*selection* hooks are unique and could enable smart tool filtering. Codex has the weakest hook system.
+
+### Multi-step task handling
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| **Task decomposition** | **TodoWrite** — structured JSON task lists with IDs, status, priorities. Current state injected after each tool call. | Implicit in reasoning outputs. No structured system. | Implicit in reasoning. Agent skills provide pre-defined workflows. |
+| **Failure recovery** | Updates TODO, adjusts plan, spawns sub-agents for alternative approaches. Task files survive session crashes. | Observes errors, retries. Thread rollback drops last N turns to recover from bad paths. | Observes errors, retries. "Rewind" navigates back to try alternatives. |
+| **Swarm / decomposition** | **Orchestrator pattern** — main session delegates to specialized sub-agents with independent context. Solves "context rot" (degradation from accumulated errors/logs). | Single agent loop. 7-hour max sessions with auto-compaction. | Single agent loop. 1M context reduces need for decomposition. |
+| **Max complexity** | Highest — swarm architecture pushes past single-context limits | Medium — limited by compaction stability (known stalling issues) | Medium — large context compensates but no sub-agent delegation |
+
+**Why this matters for ActionOS-CLI:** For complex Telegram requests ("refactor my auth system"), Claude Code can autonomously decompose into sub-tasks and delegate. Codex and Gemini will attempt it in one pass. This is Claude's strongest differentiator as an agent.
+
+### Unique agentic features (what each can do that others can't)
+
+**Claude Code:**
+- Native sub-agent spawning with swarm architecture — no other CLI has built-in multi-agent orchestration
+- `TodoWrite` as a first-class planning tool — persistent task tracking injected into context
+- Automatic Session Memory — learns across sessions without user intervention
+- Pre-execution static analysis — 84% fewer permission prompts
+- Plugin system for distributable agent bundles
+
+**Codex CLI:**
+- Cross-surface harness — same agent loop powers CLI, web app, IDE extension, macOS app via JSON-RPC
+- Thread forking — git-like branching for conversations
+- Mid-turn steering — redirect the agent while it's working
+- Cloud Codex — fully air-gapped execution (internet disabled during task)
+- Built in Rust — lowest overhead, fastest startup
+
+**Gemini CLI:**
+- 1M token context window — reads entire codebases in one session
+- Deliberate context compaction — specify what to preserve during summarization
+- Pre-tool-*selection* hooks — filter available tools before the model even chooses
+- Skill-creator skill — agent extends its own capabilities at runtime
+- Generous free tier — 1,000 req/day with full 1M context
+
 ## Models available
 
 ### Claude Code
