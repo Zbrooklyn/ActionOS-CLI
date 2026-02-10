@@ -1,0 +1,18 @@
+# ActionOS-CLI configuration
+# Copy this file to config/default.toml and fill in your values.
+# chmod 600 config/default.toml
+
+[telegram]
+bot_token = "YOUR_BOT_TOKEN_HERE"
+owner_id = 0  # Your Telegram user ID — message @userinfobot to get it
+
+# Polling interval in seconds
+poll_interval = 1.0
+
+[claude]
+max_turns = 5
+max_budget_usd = 0.50
+timeout_seconds = 120
+
+[store]
+db_path = "data/actionos.db"
